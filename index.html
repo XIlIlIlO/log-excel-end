@@ -3,262 +3,257 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>로그 분할 및 통합 백테스트 도구</title>
+    <title>대용량 로그 통합 시스템 (Pro)</title>
     <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.min.js"></script>
     <style>
-        body {
-            font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
-            background-color: #f4f7f9;
-            margin: 0;
-            padding: 40px 20px;
-            display: flex;
-            justify-content: center;
-        }
-        .container {
-            background: white;
-            padding: 2.5rem;
-            border-radius: 20px;
-            box-shadow: 0 12px 30px rgba(0,0,0,0.1);
-            width: 100%;
-            max-width: 600px;
-            text-align: center;
-        }
-        h1 { color: #333; margin-bottom: 2rem; font-size: 1.8rem; }
-        .form-group { text-align: left; margin-bottom: 1.5rem; }
-        label { display: block; margin-bottom: 8px; font-weight: bold; color: #555; }
-        input[type="number"], input[type="file"] {
-            width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 10px;
-            box-sizing: border-box; font-size: 1rem;
-        }
-        .btn-process {
-            width: 100%; padding: 15px; background-color: #007bff; color: white;
-            border: none; border-radius: 10px; font-size: 1.2rem; font-weight: bold;
-            cursor: pointer; transition: background 0.3s; margin-top: 10px;
-        }
-        .btn-process:hover { background-color: #0056b3; }
-        .status-area {
-            margin-top: 20px; padding: 15px; border-radius: 10px;
-            background-color: #f8f9fa; min-height: 50px; font-size: 0.95rem;
-            white-space: pre-line; text-align: left; color: #444;
-        }
-        .success { color: #28a745; font-weight: bold; }
-        .error { color: #dc3545; font-weight: bold; }
-        .info { color: #007bff; }
+        body { font-family: 'Malgun Gothic', sans-serif; background-color: #f0f2f5; padding: 40px; display: flex; justify-content: center; }
+        .container { background: white; padding: 30px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); width: 100%; max-width: 800px; }
+        h1 { text-align: center; color: #333; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: bold; }
+        input[type="number"], input[type="file"] { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
+        .btn-main { width: 100%; padding: 15px; background: #007bff; color: white; border: none; border-radius: 8px; font-size: 1.1rem; font-weight: bold; cursor: pointer; }
+        .btn-main:hover { background: #0056b3; }
+        
+        /* 프로그레스 바 */
+        .progress-container { margin-top: 20px; display: none; }
+        .progress-bar { width: 100%; background: #eee; border-radius: 10px; overflow: hidden; height: 20px; }
+        .progress-fill { width: 0%; height: 100%; background: #28a745; transition: width 0.1s; }
+        
+        .status-log { margin-top: 15px; font-size: 0.9rem; color: #666; max-height: 150px; overflow-y: auto; background: #fafafa; padding: 10px; border-radius: 5px; border: 1px solid #eee; }
+        
+        /* 결과 리스트 스타일 */
+        #resultArea { margin-top: 30px; display: none; text-align: left; }
+        .result-item { display: flex; justify-content: space-between; align-items: center; background: #e9ecef; padding: 15px; border-radius: 10px; margin-bottom: 10px; }
+        .btn-download { background: #28a745; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .btn-download:hover { background: #218838; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>🚀 로그 분할 및 집단 통합 도구</h1>
+    <h1>📊 대용량 로그 집단 통합 도구</h1>
     
     <div class="form-group">
-        <label for="lossValue">💰 예상 손절 금액 (User Loss Value)</label>
+        <label>💰 예상 손절 금액 (User Loss Value)</label>
         <input type="number" id="lossValue" value="834">
     </div>
 
     <div class="form-group">
-        <label for="logFiles">📂 .log 파일 선택 (pc1, pc2 등 다중 선택)</label>
+        <label>📂 .log 파일들 선택 (다중 선택 가능, 4GB+ 지원)</label>
         <input type="file" id="logFiles" accept=".log,.txt" multiple>
     </div>
 
-    <button class="btn-process" onclick="startProcessing()">분할 및 통합 실행</button>
+    <button class="btn-main" id="startBtn" onclick="processAllFiles()">데이터 분석 및 집단 분류 시작</button>
 
-    <div id="status" class="status-area">파일을 업로드하고 실행 버튼을 눌러주세요.</div>
+    <div class="progress-container" id="progCont">
+        <div id="progLabel">파일 분석 중... (0%)</div>
+        <div class="progress-bar"><div class="progress-fill" id="progFill"></div></div>
+    </div>
+
+    <div class="status-log" id="status">파일을 대기 중입니다.</div>
+
+    <div id="resultArea">
+        <h3>✅ 생성된 통합 결과 (다운로드 버튼을 클릭하세요)</h3>
+        <div id="downloadList"></div>
+    </div>
 </div>
 
 <script>
     const DELIMITER = "모든 그룹에 대한 백테스트 완료";
+    const CHUNK_SIZE = 50 * 1024 * 1024; // 50MB씩 읽어 메모리 과부하 방지
+    
+    let sessionDataMap = {}; // 집단별(0, 1, 2...) 통합 데이터를 저장할 객체
 
-    // 유틸리티 함수
-    function cleanNumber(v) {
+    // 유틸리티 함수들
+    const cleanNum = v => {
         if (!v) return 0;
-        const num = parseFloat(String(v).replace(/[^\d.-]/g, ''));
-        return isNaN(num) ? 0 : num;
+        const n = parseFloat(String(v).replace(/[^\d.-]/g, ''));
+        return isNaN(n) ? 0 : n;
+    };
+    const formatDt = v => v ? (String(v).trim().match(/^(\d{4}-\d{2}-\d{2}\s\d{2})/) || [v])[0] : "";
+    const calcWinRate = (w, l) => (w + l === 0) ? "0.000%" : ((w / (w + l)) * 100).toFixed(3) + "%";
+
+    function log(msg, type = '') {
+        const status = document.getElementById('status');
+        status.innerHTML += `<div class="${type}">${msg}</div>`;
+        status.scrollTop = status.scrollHeight;
     }
 
-    function calculateWinRate(win, loss) {
-        const total = win + loss;
-        return total === 0 ? "0.000%" : ((win / total) * 100).toFixed(3) + "%";
-    }
+    // 파일 하나를 청크 단위로 읽어 세션(집단)별로 파싱
+    async function readFileByChunks(file, userLoss, fileIndex) {
+        let offset = 0;
+        let leftover = "";
+        let sessionIndex = 0;
 
-    function formatDate(val) {
-        if (!val) return "";
-        const match = String(val).trim().match(/^(\d{4}-\d{2}-\d{2}\s\d{2})/);
-        return match ? match[1] : val;
-    }
+        while (offset < file.size) {
+            const chunk = file.slice(offset, offset + CHUNK_SIZE);
+            const text = await chunk.text();
+            const fullText = leftover + text;
+            
+            // 구분자로 세션 분리
+            const parts = fullText.split(DELIMITER);
+            leftover = parts.pop(); // 마지막 부분은 다음 청크와 합침
 
-    // 엑셀 스타일 적용 함수
-    function applyStyle(ws, header1, header2) {
-        ws['!cols'] = [{wch: 22}, {wch: 18}, {wch: 18}, {wch: 15}, {wch: 15}, {wch: 15}, {wch: 15}, {wch: 15}, {wch: 15}, {wch: 12}, {wch: 12}, {wch: 12}];
-        const range = XLSX.utils.decode_range(ws['!ref']);
-        for (let R = range.s.r; R <= range.e.r; ++R) {
-            for (let C = range.s.c; C <= range.e.c; ++C) {
-                const cell = ws[XLSX.utils.encode_cell({r: R, c: C})];
-                if (!cell) continue;
-                cell.s = {
-                    font: { name: "맑은 고딕", sz: 10 },
-                    alignment: { vertical: "center", horizontal: (C === 0 ? "left" : "center") },
-                    border: { top: {style:"thin"}, bottom: {style:"thin"}, left: {style:"thin"}, right: {style:"thin"} }
-                };
-                if (R === header1 || R === header2) {
-                    cell.s.fill = { fgColor: { rgb: "F2F2F2" } };
-                    cell.s.font.bold = true;
-                    cell.s.alignment.horizontal = "center";
+            for (let part of parts) {
+                if (part.trim().length > 50) {
+                    processSegment(part, sessionIndex, userLoss);
+                    sessionIndex++;
                 }
             }
+
+            offset += CHUNK_SIZE;
+            updateProgress(offset, file.size, file.name);
+        }
+        
+        // 마지막 남은 조각 처리
+        if (leftover.trim().length > 50) {
+            processSegment(leftover, sessionIndex, userLoss);
         }
     }
 
-    // 로그 세그먼트 파싱 함수
-    function parseLogSegment(content, userLoss) {
+    // 개별 세그먼트 파싱 및 sessionDataMap에 누적 저장
+    function processSegment(content, sIdx, userLoss) {
+        if (!sessionDataMap[sIdx]) {
+            sessionDataMap[sIdx] = { groups: [], totalStats: { tg: 0, p: 0, l: 0, f: 0, r: 0, u: 0, n: 0, wc: 0, lc: 0, start: "", end: "" } };
+        }
+
         const lines = content.split(/\r?\n/);
-        let groups = [];
-        let totalRecord = null;
-        let currentRecord = {};
-        let currentType = null;
-        let batchGroups = [];
+        let cur = {};
+        let type = null;
+        let batch = [];
 
         lines.forEach(line => {
             line = line.trim();
-            const isTotal = line.includes("[Backtest Report]") && line.includes("백테스팅 합산 결과");
-            const isGroup = line.includes("[Backtest Report]") && !line.includes("백테스팅 합산 결과");
-
-            if (isTotal || isGroup) {
-                if (Object.keys(currentRecord).length > 0) {
-                    // 계산 (기능 1 로직)
-                    const win = currentRecord.win || 0;
-                    const loss = currentRecord.loss || 0;
-                    const profit = currentRecord.profit || 0;
-                    const fee = currentRecord.fee || 0;
-                    const calcLoss = userLoss * loss;
-                    const realized = profit - calcLoss - fee;
-                    const unrealized = (currentRecord.equity || 0) - (currentRecord.balance || 0);
-                    
-                    const record = {
-                        name: currentRecord.name,
-                        start: currentRecord.start,
-                        end: currentRecord.end,
-                        profit: profit,
-                        lossAmount: calcLoss,
-                        fee: fee,
-                        realized: realized,
-                        unrealized: unrealized,
-                        net: realized + unrealized,
-                        winCount: win,
-                        lossCount: loss,
-                        winRate: calculateWinRate(win, loss),
-                        totalGroups: currentRecord.totalGroups || 0
-                    };
-
-                    if (currentType === 'group') batchGroups.push(record);
-                    else if (currentType === 'total') {
-                        totalRecord = record;
-                        groups = [...batchGroups]; // 마지막 합산 결과 직전의 그룹들 저장
+            if (line.includes("[Backtest Report]")) {
+                if (Object.keys(cur).length > 0) {
+                    const rec = finalizeRecord(cur, userLoss);
+                    if (type === 'group') batch.push(rec);
+                    else if (type === 'total') {
+                        sessionDataMap[sIdx].groups.push(...batch);
+                        accumulateTotal(sessionDataMap[sIdx].totalStats, rec);
                     }
                 }
-                currentRecord = {};
-                currentType = isTotal ? 'total' : 'group';
+                cur = {};
+                type = line.includes("백테스팅 합산 결과") ? 'total' : 'group';
                 return;
             }
-
-            if (line.includes("- Group Name")) currentRecord.name = line.split(":")[1].trim();
-            else if (line.includes("- 시작일")) currentRecord.start = formatDate(line.split(":")[1]);
-            else if (line.includes("- 종료일")) currentRecord.end = formatDate(line.split(":")[1]);
-            else if (line.includes("- Last Balance")) currentRecord.balance = cleanNumber(line.split(":")[1]);
-            else if (line.includes("- Last Equity")) currentRecord.equity = cleanNumber(line.split(":")[1]);
-            else if (line.includes("- 총 익절 회수")) currentRecord.win = cleanNumber(line.split(":")[1]);
-            else if (line.includes("- 총 손절 회수")) currentRecord.loss = cleanNumber(line.split(":")[1]);
-            else if (line.includes("- 익절 금액") || line.includes("- 익절금액")) currentRecord.profit = cleanNumber(line.split(":")[1]);
-            else if (line.includes("- Total 수수료")) currentRecord.fee = cleanNumber(line.split(":")[1]);
-            else if (line.includes("- 전체 그룹 수")) currentRecord.totalGroups = cleanNumber(line.split(":")[1]);
+            if (line.includes("- Group Name")) cur.name = line.split(":")[1].trim();
+            else if (line.includes("- 시작일")) cur.start = formatDt(line.split(":")[1]);
+            else if (line.includes("- 종료일")) cur.end = formatDt(line.split(":")[1]);
+            else if (line.includes("- Last Balance")) cur.bal = cleanNum(line.split(":")[1]);
+            else if (line.includes("- Last Equity")) cur.eq = cleanNum(line.split(":")[1]);
+            else if (line.includes("- 총 익절 회수")) cur.wc = cleanNum(line.split(":")[1]);
+            else if (line.includes("- 총 손절 회수")) cur.lc = cleanNum(line.split(":")[1]);
+            else if (line.includes("- 익절 금액")) cur.p = cleanNum(line.split(":")[1]);
+            else if (line.includes("- Total 수수료")) cur.f = cleanNum(line.split(":")[1]);
+            else if (line.includes("- 전체 그룹 수")) cur.tg = cleanNum(line.split(":")[1]);
         });
-
-        return { groups, total: totalRecord };
     }
 
-    async function startProcessing() {
-        const fileInput = document.getElementById('logFiles');
-        const lossValue = parseFloat(document.getElementById('lossValue').value) || 0;
-        const status = document.getElementById('status');
+    function finalizeRecord(c, lossVal) {
+        const calcL = lossVal * (c.lc || 0);
+        const realP = (c.p || 0) - calcL - (c.f || 0);
+        const unrP = (c.eq || 0) - (c.bal || 0);
+        return {
+            name: c.name || "Total", start: c.start, end: c.end,
+            p: c.p || 0, l: calcL, f: c.f || 0, r: realP, u: unrP, n: realP + unrP,
+            wc: c.wc || 0, lc: c.lc || 0, wr: calcWinRate(c.wc||0, c.lc||0), tg: c.tg || 0
+        };
+    }
 
-        if (fileInput.files.length === 0) {
-            status.innerHTML = "<span class='error'>파일을 선택해주세요!</span>";
-            return;
+    function accumulateTotal(target, src) {
+        target.tg += src.tg; target.p += src.p; target.l += src.l; target.f += src.f;
+        target.r += src.r; target.u += src.u; target.n += src.n; target.wc += src.wc; target.lc += src.lc;
+        if (!target.start) target.start = src.start; target.end = src.end;
+    }
+
+    async function processAllFiles() {
+        const files = document.getElementById('logFiles').files;
+        const lossVal = parseFloat(document.getElementById('lossValue').value) || 0;
+        if (files.length === 0) return alert("파일을 선택하세요.");
+
+        document.getElementById('progCont').style.display = 'block';
+        document.getElementById('downloadList').innerHTML = "";
+        sessionDataMap = {};
+        log("분석 시작...", "info");
+
+        for (let i = 0; i < files.length; i++) {
+            log(`${files[i].name} 처리 중...`);
+            await readFileByChunks(files[i], lossVal, i);
         }
 
-        status.innerHTML = "<span class='info'>파일 읽는 중...</span>";
+        log("분석 완료! 집단별 통합 데이터를 구성합니다.", "success");
+        createDownloadButtons();
+    }
+
+    function createDownloadButtons() {
+        const list = document.getElementById('downloadList');
+        document.getElementById('resultArea').style.display = 'block';
         
-        const fileData = [];
-        for (let file of fileInput.files) {
-            const text = await file.text();
-            // 1. "백테스트 완료" 기준으로 나눔
-            const segments = text.split(DELIMITER).filter(s => s.trim().length > 100);
-            fileData.push(segments);
-        }
+        Object.keys(sessionDataMap).forEach(idx => {
+            const char = String.fromCharCode(65 + parseInt(idx));
+            const item = document.createElement('div');
+            item.className = 'result-item';
+            item.innerHTML = `
+                <span><strong>집단 ${char}</strong> (데이터 ${sessionDataMap[idx].groups.length}건)</span>
+                <button class="btn-download" onclick="downloadExcel('${idx}')">엑셀 다운로드</button>
+            `;
+            list.appendChild(item);
+        });
+    }
 
-        const maxSegments = Math.max(...fileData.map(f => f.length));
-        status.innerHTML = `<span class='info'>총 ${fileInput.files.length}개 파일 분석 완료. 세션 수: ${maxSegments}</span>\n`;
+    function downloadExcel(idx) {
+        const data = sessionDataMap[idx];
+        const char = String.fromCharCode(65 + parseInt(idx));
+        
+        const totalHeaders = ["전체 그룹 수", "시작일", "종료일", "총익절금액", "총손절금액", "총수수료", "총확정손익금", "총미실현손익", "총순이익", "총익절횟수", "총손절횟수", "전체승률"];
+        const totalRow = [
+            data.totalStats.tg, data.totalStats.start, data.totalStats.end,
+            data.totalStats.p, data.totalStats.l, data.totalStats.f,
+            data.totalStats.r, data.totalStats.u, data.totalStats.n,
+            data.totalStats.wc, data.totalStats.lc, calcWinRate(data.totalStats.wc, data.totalStats.lc)
+        ];
 
-        // 집단별 통합 처리 (A, B, C...)
-        for (let s = 0; s < maxSegments; s++) {
-            let combinedGroups = [];
-            let combinedStats = {
-                totalGroups: 0, profit: 0, lossAmount: 0, fee: 0,
-                realized: 0, unrealized: 0, net: 0, winCount: 0, lossCount: 0,
-                start: "", end: ""
-            };
+        const groupHeaders = ["Group Name", "시작일", "종료일", "익절금액", "손절금액", "수수료", "확정손익금", "미실현손익", "순이익", "익절횟수", "손절횟수", "승률"];
+        const wsData = [totalHeaders, totalRow, [], [], groupHeaders];
+        
+        data.groups.sort((a,b) => a.name.localeCompare(b.name)).forEach(g => {
+            wsData.push([g.name, g.start, g.end, g.p, g.l, g.f, g.r, g.u, g.n, g.wc, g.lc, g.wr]);
+        });
 
-            for (let f = 0; f < fileData.length; f++) {
-                if (fileData[f][s]) {
-                    const parsed = parseLogSegment(fileData[f][s], lossValue);
-                    if (parsed.total) {
-                        combinedGroups.push(...parsed.groups);
-                        combinedStats.totalGroups += parsed.total.totalGroups;
-                        combinedStats.profit += parsed.total.profit;
-                        combinedStats.lossAmount += parsed.total.lossAmount;
-                        combinedStats.fee += parsed.total.fee;
-                        combinedStats.realized += parsed.total.realized;
-                        combinedStats.unrealized += parsed.total.unrealized;
-                        combinedStats.net += parsed.total.net;
-                        combinedStats.winCount += parsed.total.winCount;
-                        combinedStats.lossCount += parsed.total.lossCount;
-                        if (!combinedStats.start) combinedStats.start = parsed.total.start;
-                        combinedStats.end = parsed.total.end;
-                    }
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        applyExcelStyle(ws);
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, `Group_${char}_Integrated`);
+        XLSX.writeFile(wb, `집단_${char}_통합결과.xlsx`);
+    }
+
+    function applyExcelStyle(ws) {
+        ws['!cols'] = [{wch:22}, {wch:18}, {wch:18}, {wch:15}, {wch:15}, {wch:15}, {wch:15}, {wch:15}, {wch:15}, {wch:12}, {wch:12}, {wch:12}];
+        const range = XLSX.utils.decode_range(ws['!ref']);
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+                const addr = XLSX.utils.encode_cell({r: R, c: C});
+                if (!ws[addr]) continue;
+                ws[addr].s = {
+                    font: { name: "맑은 고딕", sz: 10 },
+                    alignment: { vertical: "center", horizontal: C === 0 ? "left" : "center" },
+                    border: { top: {style:"thin"}, bottom: {style:"thin"}, left: {style:"thin"}, right: {style:"thin"} }
+                };
+                if (R === 0 || R === 4) {
+                    ws[addr].s.fill = { fgColor: { rgb: "F2F2F2" } };
+                    ws[addr].s.font.bold = true;
                 }
             }
-
-            if (combinedGroups.length > 0) {
-                // 기능 2: 통합 및 정렬
-                combinedGroups.sort((a, b) => a.name.localeCompare(b.name));
-                
-                const groupChar = String.fromCharCode(65 + s); // A, B, C...
-                status.innerHTML += `집단 ${groupChar} 생성 중...\n`;
-
-                const totalHeaders = ["전체 그룹 수", "시작일", "종료일", "총익절금액", "총손절금액", "총수수료", "총확정손익금", "총미실현손익", "총순이익", "총익절횟수", "총손절횟수", "전체승률"];
-                const totalRow = [
-                    combinedStats.totalGroups, combinedStats.start, combinedStats.end,
-                    combinedStats.profit, combinedStats.lossAmount, combinedStats.fee,
-                    combinedStats.realized, combinedStats.unrealized, combinedStats.net,
-                    combinedStats.winCount, combinedStats.lossCount, calculateWinRate(combinedStats.winCount, combinedStats.lossCount)
-                ];
-
-                const groupHeaders = ["Group Name", "시작일", "종료일", "익절금액", "손절금액", "수수료", "확정손익금", "미실현손익", "순이익", "익절횟수", "손절횟수", "승률"];
-                const wsData = [totalHeaders, totalRow, [], [], groupHeaders];
-                
-                combinedGroups.forEach(g => {
-                    wsData.push([g.name, g.start, g.end, g.profit, g.lossAmount, g.fee, g.realized, g.unrealized, g.net, g.winCount, g.lossCount, g.winRate]);
-                });
-
-                const ws = XLSX.utils.aoa_to_sheet(wsData);
-                applyStyle(ws, 0, 4);
-
-                const wb = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(wb, ws, "Integrated_Result");
-                XLSX.writeFile(wb, `집단_${groupChar}_통합결과.xlsx`);
-            }
         }
-        status.innerHTML += "<span class='success'>✅ 모든 집단 통합 완료 및 다운로드되었습니다.</span>";
+    }
+
+    function updateProgress(offset, total, name) {
+        const per = Math.min(100, Math.round((offset / total) * 100));
+        document.getElementById('progFill').style.width = per + '%';
+        document.getElementById('progLabel').innerText = `${name} 분석 중... (${per}%)`;
     }
 </script>
 
