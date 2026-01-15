@@ -231,6 +231,7 @@
         <p>여러 로그 파일을 분석하고 그룹별로 통합된 결과 확인</p>
     </div>
 
+    <!-- 파일 업로드 섹션 -->
     <div class="wrapper">
         <div class="card">
             <span class="badge badge-blue">Step 1</span>
@@ -281,6 +282,7 @@
         </div>
     </div>
 
+    <!-- 그룹 선택 섹션 -->
     <div class="groups-section" id="groupsSection" style="display: none;">
         <h2>🎯 분류된 그룹</h2>
         <p style="color: #666; margin: 0 0 15px 0;">각 그룹은 여러 로그 파일의 해당 순서 데이터를 통합합니다.</p>
@@ -307,7 +309,6 @@
         return ((winCount / total) * 100).toFixed(3) + "%";
     }
 
-    // 날짜 포맷: YYYY-MM-DD HH (시 단위까지만)
     function formatDate(val) {
         if (!val) return "";
         const str = String(val).trim();
@@ -316,8 +317,7 @@
         return str;
     }
 
-    // 엑셀 스타일 적용 (요청하신 코드로 교체)
-    function applyExcelStyle(ws, headerRowIndex1, headerRowIndex2) {
+    function applyExcelStyle(ws) {
         ws['!cols'] = [
             {wch: 22}, {wch: 18}, {wch: 18},
             {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}
@@ -340,19 +340,13 @@
                     }
                 };
 
-                if (R === headerRowIndex1 || R === headerRowIndex2) {
+                if (R === 0 || R === 1 || R === 4) {
                     style.alignment.horizontal = "center";
                     style.font.bold = true;
                     style.fill = { fgColor: { rgb: "F2F2F2" } };
                 } else {
-                    if (C === 0) {
-                        if (R === headerRowIndex1 + 1) style.alignment.horizontal = "center";
-                        else style.alignment.horizontal = "left";
-                    } else if (C === 1 || C === 2) {
-                        style.alignment.horizontal = "center";
-                    } else {
-                        style.alignment.horizontal = "right";
-                    }
+                    if (C === 0) style.alignment.horizontal = "left";
+                    else style.alignment.horizontal = "right";
                 }
                 ws[cellAddress].s = style;
             }
@@ -471,6 +465,7 @@
                 const content = e.target.result;
                 processedData[file.name] = parseLogContent(content, 0);
                 
+                // 모든 그룹 데이터 추출
                 const text = content;
                 const separator = "모든 그룹에 대한 백테스트 완료";
                 const sections = text.split(separator);
@@ -561,7 +556,6 @@
         section.scrollIntoView({ behavior: 'smooth' });
     }
 
-    // 엑셀 다운로드 함수 (요청하신 형식으로 데이터 구조 재구성)
     function downloadGroup(groupKey, groupLabel) {
         const fileData = groupFiles[groupKey];
         if (!fileData || fileData.length === 0) return;
@@ -598,18 +592,14 @@
 
         allGroups.sort((a, b) => (a.GroupName || "").localeCompare((b.GroupName || "")));
 
-        // 헤더 정의
-        const totalHeaders = ["전체 그룹 수", "시작일", "종료일", "총익절금액", "총손절금액", "총수수료", "총확정손익금", "총미실현손익", "총순이익", "총익절횟수", "총손절횟수", "전체승률"];
-        const totalRow = [
-            totalGroupCount, startDate, endDate,
-            totalProfit, totalLoss, totalFee,
-            totalRealized, totalUnrealized, totalNetProfit,
-            totalWinCount, totalLossCount, calculateWinRate(totalWinCount, totalLossCount)
+        const headers = ["Group Name", "시작일", "종료일", "익절금액", "손절금액", "수수료", "확정손익금", "미실현손익", "순이익", "익절횟수", "손절횟수", "승률"];
+        let wsData = [
+            ["전체 그룹 수", "시작일", "종료일", "총익절금액", "총손절금액", "총수수료", "총확정손익금", "총미실현손익", "총순이익", "총익절횟수", "총손절횟수", "전체승률"],
+            [totalGroupCount, startDate, endDate, totalProfit, totalLoss, totalFee, totalRealized, totalUnrealized, totalNetProfit, totalWinCount, totalLossCount, calculateWinRate(totalWinCount, totalLossCount)],
+            [],
+            [],
+            headers
         ];
-
-        const groupHeaders = ["Group Name", "시작일", "종료일", "익절금액", "손절금액", "수수료", "확정손익금", "미실현손익", "순이익", "익절횟수", "손절횟수", "승률"];
-        
-        let wsData = [totalHeaders, totalRow, [], [], groupHeaders];
 
         allGroups.forEach(g => {
             wsData.push([
@@ -621,11 +611,10 @@
         });
 
         const ws = XLSX.utils.aoa_to_sheet(wsData);
-        // 스타일 적용: 헤더 인덱스 0과 4 전달
-        applyExcelStyle(ws, 0, 4);
+        applyExcelStyle(ws);
 
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Total_Result");
+        XLSX.utils.book_append_sheet(wb, ws, "Group_Result");
         XLSX.writeFile(wb, `그룹${groupLabel}_통합결과.xlsx`);
     }
 
