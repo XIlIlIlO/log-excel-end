@@ -289,9 +289,9 @@
 </div>
 
 <script>
-    // [메모리 최적화] 전역 변수 최소화
+    // [메모리 극대화 최적화] 전역 변수 구조
     let groupFiles = {}; 
-    const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB 단위 조각
+    const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB 단위로 조각내어 읽기
 
     function cleanNumber(valueStr) {
         if (!valueStr) return 0;
@@ -358,19 +358,50 @@
         });
     }
 
+    // 핵심 데이터만 남기고 객체 다이어트
+    function stripRecord(rec) {
+        const lossCount = cleanNumber(rec.raw_loss_count);
+        const winCount = cleanNumber(rec.raw_win_count);
+        const profit = cleanNumber(rec.raw_profit);
+        const fee = cleanNumber(rec.raw_fee);
+        const userLossValue = parseFloat(document.getElementById('lossValue').value) || 834;
+        
+        const calc_loss_amount = userLossValue * lossCount;
+        const calc_realized_pnl = profit - calc_loss_amount - fee;
+        const calc_unrealized_pnl = cleanNumber(rec.last_equity) - cleanNumber(rec.last_balance);
+
+        return {
+            GroupName: rec.GroupName || "",
+            TotalGroups: cleanNumber(rec.TotalGroups),
+            StartDate: formatDate(rec.StartDate),
+            EndDate: formatDate(rec.EndDate),
+            raw_profit: profit,
+            calc_loss_amount: calc_loss_amount,
+            raw_fee: fee,
+            calc_realized_pnl: calc_realized_pnl,
+            calc_unrealized_pnl: calc_unrealized_pnl,
+            calc_net_profit: calc_realized_pnl + calc_unrealized_pnl,
+            raw_win_count: winCount,
+            raw_loss_count: lossCount,
+            calc_win_rate: calculateWinRate(winCount, lossCount)
+        };
+    }
+
+    // 스트리밍 라인 파서 (필요 없는 줄은 즉시 버림)
     function parseLineStreaming(line, session) {
         line = line.trim();
-        if (!line) return;
-        const isTotalHeader = line.includes("[Backtest Report]") && line.includes("백테스팅 합산 결과");
-        const isGroupHeader = line.includes("[Backtest Report]") && !line.includes("백테스팅 합산 결과");
+        if (!line || (!line.includes("- ") && !line.includes("[Backtest Report]"))) return;
+
+        const isTotalHeader = line.includes("백테스팅 합산 결과");
+        const isGroupHeader = line.includes("[Backtest Report]") && !isTotalHeader;
 
         if (isTotalHeader || isGroupHeader) {
             if (Object.keys(session.currentRecord).length > 0) {
-                processRecordInternal(session.currentRecord);
-                if (session.currentType === 'group') session.currentBatchGroups.push({...session.currentRecord});
+                const stripped = stripRecord(session.currentRecord);
+                if (session.currentType === 'group') session.currentBatchGroups.push(stripped);
                 else if (session.currentType === 'total') {
-                    session.groups = session.currentBatchGroups; // 참조 이동
-                    session.total = {...session.currentRecord};
+                    session.groups = session.currentBatchGroups;
+                    session.total = stripped;
                     session.currentBatchGroups = [];
                 }
             }
@@ -380,44 +411,20 @@
         }
 
         if (line.includes("- Group Name")) session.currentRecord.GroupName = line.split(":", 2)[1].trim();
-        else if (line.includes("- 전체 그룹 수")) session.currentRecord.TotalGroups = cleanNumber(line.split(":")[1]);
-        else if (line.includes("- 시작일")) session.currentRecord.StartDate = formatDate(line.split(":", 2)[1].trim());
-        else if (line.includes("- 종료일")) session.currentRecord.EndDate = formatDate(line.split(":", 2)[1].trim());
-        else if (line.includes("- Last Balance")) session.currentRecord.last_balance = cleanNumber(line.split(":")[1]);
-        else if (line.includes("- Last Equity")) session.currentRecord.last_equity = cleanNumber(line.split(":")[1]);
-        else if (line.includes("- 총 익절 회수")) session.currentRecord.raw_win_count = cleanNumber(line.split(":")[1]);
-        else if (line.includes("- 총 손절 회수")) session.currentRecord.raw_loss_count = cleanNumber(line.split(":")[1]);
-        else if (line.includes("- 익절금액") || line.includes("- 익절 금액")) session.currentRecord.raw_profit = cleanNumber(line.split(":")[1]);
-        else if (line.includes("- Total 수수료")) session.currentRecord.raw_fee = cleanNumber(line.split(":")[1]);
+        else if (line.includes("- 전체 그룹 수")) session.currentRecord.TotalGroups = line.split(":")[1];
+        else if (line.includes("- 시작일")) session.currentRecord.StartDate = line.split(":", 2)[1].trim();
+        else if (line.includes("- 종료일")) session.currentRecord.EndDate = line.split(":", 2)[1].trim();
+        else if (line.includes("- Last Balance")) session.currentRecord.last_balance = line.split(":")[1];
+        else if (line.includes("- Last Equity")) session.currentRecord.last_equity = line.split(":")[1];
+        else if (line.includes("- 총 익절 회수")) session.currentRecord.raw_win_count = line.split(":")[1];
+        else if (line.includes("- 총 손절 회수")) session.currentRecord.raw_loss_count = line.split(":")[1];
+        else if (line.includes("- 익절금액") || line.includes("- 익절 금액")) session.currentRecord.raw_profit = line.split(":")[1];
+        else if (line.includes("- Total 수수료")) session.currentRecord.raw_fee = line.split(":")[1];
     }
 
-    function processRecordInternal(rec) {
-        const lossCount = rec.raw_loss_count || 0;
-        const winCount = rec.raw_win_count || 0;
-        const profit = rec.raw_profit || 0;
-        const fee = rec.raw_fee || 0;
-        const userLossValue = parseFloat(document.getElementById('lossValue').value) || 834;
-        rec.calc_loss_amount = userLossValue * lossCount;
-        rec.calc_realized_pnl = profit - rec.calc_loss_amount - fee;
-        rec.calc_unrealized_pnl = (rec.last_equity || 0) - (rec.last_balance || 0);
-        rec.calc_net_profit = rec.calc_realized_pnl + rec.calc_unrealized_pnl;
-        rec.calc_win_rate = calculateWinRate(winCount, lossCount);
-    }
-
-    function finalizeSession(session) {
-        if (Object.keys(session.currentRecord).length > 0) {
-            processRecordInternal(session.currentRecord);
-            if (session.currentType === 'total') {
-                session.total = {...session.currentRecord};
-                session.groups = session.currentBatchGroups;
-            }
-        }
-    }
-
-    async function processFileInChunks(file) {
+    async function processFileInChunks(file, onSessionFound) {
         let offset = 0;
         let remainder = "";
-        const fileSessions = [];
         let currentSession = { total: null, groups: [], currentRecord: {}, currentType: null, currentBatchGroups: [] };
         const separator = "모든 그룹에 대한 백테스트 완료";
 
@@ -429,22 +436,38 @@
 
             for (let line of lines) {
                 if (line.includes(separator)) {
-                    finalizeSession(currentSession);
-                    if (currentSession.total) fileSessions.push({ total: currentSession.total, groups: currentSession.groups });
+                    // 세션 종료 시 즉시 콜백으로 넘겨서 메모리에서 비움
+                    if (Object.keys(currentSession.currentRecord).length > 0) {
+                        const stripped = stripRecord(currentSession.currentRecord);
+                        if (currentSession.currentType === 'total') {
+                            currentSession.total = stripped;
+                            currentSession.groups = currentSession.currentBatchGroups;
+                        }
+                    }
+                    if (currentSession.total) {
+                        onSessionFound(currentSession);
+                    }
+                    // 초기화
                     currentSession = { total: null, groups: [], currentRecord: {}, currentType: null, currentBatchGroups: [] };
                     continue;
                 }
                 parseLineStreaming(line, currentSession);
             }
             offset += CHUNK_SIZE;
-            // [메모리 최적화] 브라우저 루프에 휴식 제공 (GC 작동 유도)
-            if (offset % (CHUNK_SIZE * 5) === 0) await new Promise(r => setTimeout(r, 0));
+            // 의도적인 비동기 지연으로 가비지 컬렉션 기회 제공
+            await new Promise(r => setTimeout(r, 0));
         }
-
+        
+        // 마지막 세션 처리
         if (remainder) parseLineStreaming(remainder, currentSession);
-        finalizeSession(currentSession);
-        if (currentSession.total) fileSessions.push({ total: currentSession.total, groups: currentSession.groups });
-        return fileSessions;
+        if (Object.keys(currentSession.currentRecord).length > 0) {
+            const stripped = stripRecord(currentSession.currentRecord);
+            if (currentSession.currentType === 'total') {
+                currentSession.total = stripped;
+                currentSession.groups = currentSession.currentBatchGroups;
+            }
+        }
+        if (currentSession.total) onSessionFound(currentSession);
     }
 
     async function processAllLogs() {
@@ -459,32 +482,32 @@
         }
 
         statusDiv.className = 'status-msg info';
-        statusDiv.innerText = '⏳ 메모리 최적화 분석 중...';
+        statusDiv.innerText = '⏳ 초고속 메모리 다이어트 분석 중...';
         progressContainer.style.display = 'block';
         
-        // [메모리 최적화] 이전 분석 데이터 완전 삭제
         groupFiles = {}; 
 
         const files = Array.from(fileInputs.files);
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
-            const sessions = await processFileInChunks(file);
             
-            sessions.forEach((sessionData, sIdx) => {
+            let sIdx = 0;
+            await processFileInChunks(file, (sessionData) => {
                 const groupKey = `Group_${sIdx}`;
                 if (!groupFiles[groupKey]) groupFiles[groupKey] = [];
                 groupFiles[groupKey].push({
                     fileName: file.name,
-                    data: sessionData // 결과 요약본만 저장
+                    data: { total: sessionData.total, groups: sessionData.groups }
                 });
+                sIdx++;
             });
 
             const totalProgress = Math.round(((i + 1) / files.length) * 100);
             document.getElementById('progressBar').style.width = totalProgress + '%';
             document.getElementById('progressText').innerText = `${totalProgress}% (${i+1}/${files.length} 완료)`;
             
-            // 파일 하나 끝날 때마다 짧은 휴식으로 메모리 반환 유도
-            await new Promise(r => setTimeout(r, 50));
+            // 파일 하나 끝날 때마다 가비지 컬렉션 유도 루프
+            await new Promise(r => setTimeout(r, 100));
         }
         finishProcessing();
     }
@@ -528,29 +551,31 @@
     function downloadGroup(groupKey, groupLabel) {
         const fileData = groupFiles[groupKey];
         if (!fileData || fileData.length === 0) return;
+        
         let allGroups = [], startDate = null, endDate = null;
-        let totalProfit = 0, totalLoss = 0, totalFee = 0, totalRealized = 0, totalUnrealized = 0, totalNetProfit = 0, totalWinCount = 0, totalLossCount = 0, totalGroupCount = 0;
+        let tProfit = 0, tLoss = 0, tFee = 0, tRealized = 0, tUnrealized = 0, tNetProfit = 0, tWin = 0, tLossC = 0, tGroupC = 0;
 
         fileData.forEach(file => {
-            const data = file.data;
-            if (data.total) {
-                totalGroupCount += data.total.TotalGroups || 0;
-                totalProfit += data.total.raw_profit || 0;
-                totalLoss += data.total.calc_loss_amount || 0;
-                totalFee += data.total.raw_fee || 0;
-                totalRealized += data.total.calc_realized_pnl || 0;
-                totalUnrealized += data.total.calc_unrealized_pnl || 0;
-                totalNetProfit += data.total.calc_net_profit || 0;
-                totalWinCount += data.total.raw_win_count || 0;
-                totalLossCount += data.total.raw_loss_count || 0;
-                if (!startDate) startDate = data.total.StartDate;
-                endDate = data.total.EndDate;
+            const d = file.data;
+            if (d.total) {
+                tGroupC += d.total.TotalGroups || 0;
+                tProfit += d.total.raw_profit || 0;
+                tLoss += d.total.calc_loss_amount || 0;
+                tFee += d.total.raw_fee || 0;
+                tRealized += d.total.calc_realized_pnl || 0;
+                tUnrealized += d.total.calc_unrealized_pnl || 0;
+                tNetProfit += d.total.calc_net_profit || 0;
+                tWin += d.total.raw_win_count || 0;
+                tLossC += d.total.raw_loss_count || 0;
+                if (!startDate) startDate = d.total.StartDate;
+                endDate = d.total.EndDate;
             }
-            if (data.groups) allGroups = allGroups.concat(data.groups);
+            if (d.groups) allGroups = allGroups.concat(d.groups);
         });
+
         allGroups.sort((a, b) => (a.GroupName || "").localeCompare(b.GroupName || ""));
         const totalHeaders = ["전체 그룹 수", "시작일", "종료일", "총익절금액", "총손절금액", "총수수료", "총확정손익금", "총미실현손익", "총순이익", "총익절횟수", "총손절횟수", "전체승률"];
-        const totalRow = [totalGroupCount, startDate, endDate, totalProfit, totalLoss, totalFee, totalRealized, totalUnrealized, totalNetProfit, totalWinCount, totalLossCount, calculateWinRate(totalWinCount, totalLossCount)];
+        const totalRow = [tGroupC, startDate, endDate, tProfit, tLoss, tFee, tRealized, tUnrealized, tNetProfit, tWin, tLossC, calculateWinRate(tWin, tLossC)];
         const groupHeaders = ["Group Name", "시작일", "종료일", "익절금액", "손절금액", "수수료", "확정손익금", "미실현손익", "순이익", "익절횟수", "손절횟수", "승률"];
         let wsData = [totalHeaders, totalRow, [], [], groupHeaders];
         allGroups.forEach(g => wsData.push([g.GroupName, g.StartDate, g.EndDate, g.raw_profit, g.calc_loss_amount, g.raw_fee, g.calc_realized_pnl, g.calc_unrealized_pnl, g.calc_net_profit, g.raw_win_count, g.raw_loss_count, g.calc_win_rate]));
@@ -566,7 +591,7 @@
         const sortedGroups = Object.keys(groupFiles).sort((a, b) => parseInt(a.split('_')[1]) - parseInt(b.split('_')[1]));
         sortedGroups.forEach((groupKey, index) => {
             const groupLabel = String.fromCharCode(65 + index);
-            setTimeout(() => downloadGroup(groupKey, groupLabel), index * 500);
+            setTimeout(() => downloadGroup(groupKey, groupLabel), index * 700);
         });
     }
 </script>
