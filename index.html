@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>백테스트 통합 분석 도구 (Ultra Pro)</title>
+    <title>백테스트 통합 분석 도구 (Ultra Pro - Auto Sum)</title>
     <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.min.js"></script>
     <style>
         * { box-sizing: border-box; }
@@ -79,7 +79,7 @@
 <div class="main-container">
     <div class="header">
         <h1>📊 백테스트 통합 분석 도구</h1>
-        <p>초대용량(GB급) 로그 파일 안전 처리 모드</p>
+        <p>Ultra Pro - 개별 그룹 자동 합산 모드</p>
     </div>
 
     <div class="wrapper">
@@ -211,7 +211,7 @@
             this.currentRecord = {};
             this.currentType = null; 
             this.currentBatchGroups = [];
-            this.currentTotalData = null; // [수정] Total 데이터 임시 저장용
+            // Total 저장 로직 제거 (직접 계산할 예정)
         }
 
         processRecord(rec) {
@@ -236,14 +236,12 @@
             if (Object.keys(this.currentRecord).length > 0) {
                 this.processRecord(this.currentRecord);
                 
+                // 오직 그룹 데이터만 수집 (Total은 skip)
                 if (this.currentType === 'group') {
                     this.currentBatchGroups.push(this.currentRecord);
-                } else if (this.currentType === 'total') {
-                    // [수정] Total 데이터일 경우 별도 변수에 안전하게 저장
-                    this.currentTotalData = this.currentRecord;
                 }
             }
-            this.currentRecord = {}; // 처리 후 초기화 (Total일 때 백업 안하면 여기서 날아감)
+            this.currentRecord = {}; 
         }
 
         finalizeGroupSection() {
@@ -251,21 +249,11 @@
             const groupKey = `Group_${this.groupIndex}`;
             if (!groupFiles[groupKey]) groupFiles[groupKey] = [];
 
-            // [수정] currentRecord 대신 백업해둔 currentTotalData 사용
-            if (this.currentTotalData) {
+            // 그룹 데이터가 있으면 저장
+            if (this.currentBatchGroups.length > 0) {
                  groupFiles[groupKey].push({
                     fileName: this.fileName,
                     data: {
-                        total: this.currentTotalData,
-                        groups: [...this.currentBatchGroups]
-                    }
-                });
-            } else if (this.currentBatchGroups.length > 0) {
-                // Total이 없더라도 그룹 데이터가 있으면 저장 (비정상 케이스 대비)
-                groupFiles[groupKey].push({
-                    fileName: this.fileName,
-                    data: {
-                        total: {}, // 빈 객체라도 전달
                         groups: [...this.currentBatchGroups]
                     }
                 });
@@ -274,7 +262,6 @@
             this.groupIndex++;
             this.currentRecord = {};
             this.currentBatchGroups = [];
-            this.currentTotalData = null; // 초기화
             this.currentType = null;
         }
 
@@ -294,22 +281,25 @@
                 if (Object.keys(this.currentRecord).length > 0) {
                     this.processRecord(this.currentRecord);
                     if (this.currentType === 'group') this.currentBatchGroups.push(this.currentRecord);
-                    else if (this.currentType === 'total') this.currentTotalData = this.currentRecord;
                 }
                 this.currentRecord = {};
-                this.currentType = isTotalHeader ? 'total' : 'group';
+                // [변경] 합산 결과 헤더가 나오면 'skip' 모드로 전환하여 파싱 무시
+                this.currentType = isTotalHeader ? 'skip' : 'group';
                 return;
             }
 
-            if (line.includes("- 전체 그룹 수")) this.currentRecord.TotalGroups = cleanNumber(line.split(":")[1]);
-            else if (line.includes("- 시작일")) this.currentRecord.StartDate = formatDate(line.split(":", 2)[1].trim());
-            else if (line.includes("- 종료일")) this.currentRecord.EndDate = formatDate(line.split(":", 2)[1].trim());
-            else if (line.includes("- Last Balance")) this.currentRecord.last_balance = cleanNumber(line.split(":")[1]);
-            else if (line.includes("- Last Equity")) this.currentRecord.last_equity = cleanNumber(line.split(":")[1]);
-            else if (line.includes("- 총 익절 회수")) this.currentRecord.raw_win_count = cleanNumber(line.split(":")[1]);
-            else if (line.includes("- 총 손절 회수")) this.currentRecord.raw_loss_count = cleanNumber(line.split(":")[1]);
-            else if (line.includes("- 익절금액") || line.includes("- 익절 금액")) this.currentRecord.raw_profit = cleanNumber(line.split(":")[1]);
-            else if (line.includes("- Total 수수료")) this.currentRecord.raw_fee = cleanNumber(line.split(":")[1]);
+            // 'skip' 모드가 아닐 때만 데이터 파싱
+            if (this.currentType === 'group') {
+                if (line.includes("- 전체 그룹 수")) this.currentRecord.TotalGroups = cleanNumber(line.split(":")[1]);
+                else if (line.includes("- 시작일")) this.currentRecord.StartDate = formatDate(line.split(":", 2)[1].trim());
+                else if (line.includes("- 종료일")) this.currentRecord.EndDate = formatDate(line.split(":", 2)[1].trim());
+                else if (line.includes("- Last Balance")) this.currentRecord.last_balance = cleanNumber(line.split(":")[1]);
+                else if (line.includes("- Last Equity")) this.currentRecord.last_equity = cleanNumber(line.split(":")[1]);
+                else if (line.includes("- 총 익절 회수")) this.currentRecord.raw_win_count = cleanNumber(line.split(":")[1]);
+                else if (line.includes("- 총 손절 회수")) this.currentRecord.raw_loss_count = cleanNumber(line.split(":")[1]);
+                else if (line.includes("- 익절금액") || line.includes("- 익절 금액")) this.currentRecord.raw_profit = cleanNumber(line.split(":")[1]);
+                else if (line.includes("- Total 수수료")) this.currentRecord.raw_fee = cleanNumber(line.split(":")[1]);
+            }
         }
     }
 
@@ -464,48 +454,66 @@
         section.scrollIntoView({ behavior: 'smooth' });
     }
 
+    // [핵심 변경] downloadGroup 함수 내에서 Total 직접 계산
     function downloadGroup(groupKey, groupLabel) {
         const fileData = groupFiles[groupKey];
         if (!fileData || fileData.length === 0) return;
 
         let allGroups = [];
-        let startDate = null;
-        let endDate = null;
-        let totalProfit = 0, totalLoss = 0, totalFee = 0;
-        let totalRealized = 0, totalUnrealized = 0, totalNetProfit = 0;
-        let totalWinCount = 0, totalLossCount = 0;
-        let totalGroupCount = 0;
-
+        
+        // 데이터 병합
         fileData.forEach(file => {
-            const data = file.data;
-            if (data.total) {
-                totalGroupCount += data.total.TotalGroups || 0;
-                totalProfit += data.total.raw_profit || 0;
-                totalLoss += data.total.calc_loss_amount || 0;
-                totalFee += data.total.raw_fee || 0;
-                totalRealized += data.total.calc_realized_pnl || 0;
-                totalUnrealized += data.total.calc_unrealized_pnl || 0;
-                totalNetProfit += data.total.calc_net_profit || 0;
-                totalWinCount += data.total.raw_win_count || 0;
-                totalLossCount += data.total.raw_loss_count || 0;
-                
-                if (!startDate) startDate = data.total.StartDate;
-                endDate = data.total.EndDate;
-            }
-
-            if (data.groups && Array.isArray(data.groups)) {
-                allGroups = allGroups.concat(data.groups);
+            if (file.data.groups) {
+                allGroups = allGroups.concat(file.data.groups);
             }
         });
+        
+        // [자동 합산 로직 시작]
+        let sumProfit = 0;
+        let sumLossAmount = 0;
+        let sumFee = 0;
+        let sumRealized = 0;
+        let sumUnrealized = 0;
+        let sumNetProfit = 0;
+        let sumWinCount = 0;
+        let sumLossCount = 0;
+        
+        let minStartDate = "";
+        let maxEndDate = "";
+
+        allGroups.forEach(g => {
+            sumProfit += (g.raw_profit || 0);
+            sumLossAmount += (g.calc_loss_amount || 0);
+            sumFee += (g.raw_fee || 0);
+            sumRealized += (g.calc_realized_pnl || 0);
+            sumUnrealized += (g.calc_unrealized_pnl || 0);
+            sumNetProfit += (g.calc_net_profit || 0);
+            sumWinCount += (g.raw_win_count || 0);
+            sumLossCount += (g.raw_loss_count || 0);
+
+            // 날짜 계산 (문자열 비교)
+            if (g.StartDate) {
+                if (!minStartDate || g.StartDate < minStartDate) minStartDate = g.StartDate;
+            }
+            if (g.EndDate) {
+                if (!maxEndDate || g.EndDate > maxEndDate) maxEndDate = g.EndDate;
+            }
+        });
+
+        const totalGroupCount = allGroups.length;
+        const totalWinRate = calculateWinRate(sumWinCount, sumLossCount);
+        // [자동 합산 로직 끝]
 
         allGroups.sort((a, b) => (a.GroupName || "").localeCompare((b.GroupName || "")));
 
         const totalHeaders = ["전체 그룹 수", "시작일", "종료일", "총익절금액", "총손절금액", "총수수료", "총확정손익금", "총미실현손익", "총순이익", "총익절횟수", "총손절횟수", "전체승률"];
+        
+        // 계산된 값으로 Total 행 생성
         const totalRow = [
-            totalGroupCount, startDate, endDate,
-            totalProfit, totalLoss, totalFee,
-            totalRealized, totalUnrealized, totalNetProfit,
-            totalWinCount, totalLossCount, calculateWinRate(totalWinCount, totalLossCount)
+            totalGroupCount, minStartDate, maxEndDate,
+            sumProfit, sumLossAmount, sumFee,
+            sumRealized, sumUnrealized, sumNetProfit,
+            sumWinCount, sumLossCount, totalWinRate
         ];
 
         const groupHeaders = ["Group Name", "시작일", "종료일", "익절금액", "손절금액", "수수료", "확정손익금", "미실현손익", "순이익", "익절횟수", "손절횟수", "승률"];
