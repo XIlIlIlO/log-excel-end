@@ -6,6 +6,7 @@
     <title>백테스트 통합 분석 도구 (Pro)</title>
     <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.min.js"></script>
     <style>
+        /* UI 스타일은 원본과 동일하게 유지 */
         * { box-sizing: border-box; }
         body {
             font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
@@ -235,20 +236,16 @@
         <div class="card">
             <span class="badge badge-blue">Step 1</span>
             <h2>📁 로그 파일 업로드</h2>
-            
             <div class="form-group">
                 <label for="logFiles">.log 파일 선택 (여러 개 선택 가능)</label>
                 <input type="file" id="logFiles" accept=".log,.txt" multiple>
             </div>
-
             <div class="form-group">
                 <label for="lossValue">예상 손절 금액 (USDT)</label>
                 <input type="number" id="lossValue" value="834" min="0" step="0.01">
             </div>
-
             <button class="btn-primary" onclick="processAllLogs()">파일 분석 & 그룹 분류</button>
             <div id="statusUpload" class="status-msg info">파일을 선택해주세요.</div>
-            
             <div class="progress-container" id="progressContainer">
                 <div class="progress-bar-bg">
                     <div class="progress-bar" id="progressBar"></div>
@@ -260,7 +257,6 @@
         <div class="card">
             <span class="badge badge-purple">Step 2</span>
             <h2>📥 설정 & 초기화</h2>
-            
             <div class="form-group">
                 <label for="groupSelectMode">그룹 처리 방식</label>
                 <select id="groupSelectMode">
@@ -268,31 +264,24 @@
                     <option value="individual">개별 그룹 선택</option>
                 </select>
             </div>
-
-            <button class="btn-primary" onclick="showGroupSelection()" id="showGroupBtn" disabled>
-                그룹별 다운로드 준비
-            </button>
-            
+            <button class="btn-primary" onclick="showGroupSelection()" id="showGroupBtn" disabled>그룹별 다운로드 준비</button>
             <button class="btn-primary" onclick="downloadAllGroups()" id="downloadAllBtn" disabled style="background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);">
                 모든 그룹 일괄 다운로드
             </button>
-
             <div id="statusConfig" class="status-msg info">파일 분석 후 활성화 됩니다.</div>
         </div>
     </div>
 
     <div class="groups-section" id="groupsSection" style="display: none;">
         <h2>🎯 분류된 그룹</h2>
-        <p style="color: #666; margin: 0 0 15px 0;">각 그룹은 여러 로그 파일의 해당 순서 데이터를 통합합니다.</p>
         <div class="groups-grid" id="groupsGrid"></div>
     </div>
 </div>
 
 <script>
-    // [메모리 극대화 최적화] 전역 변수 구조
-    let groupFiles = {}; 
-    const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB 단위로 조각내어 읽기
+    let groupFiles = {}; // 그룹별 데이터 저장소
 
+    // 숫자 정제
     function cleanNumber(valueStr) {
         if (!valueStr) return 0;
         if (typeof valueStr === 'number') return valueStr;
@@ -301,6 +290,7 @@
         return isNaN(num) ? 0 : num;
     }
 
+    // 승률 계산
     function calculateWinRate(winCount, lossCount) {
         if (winCount === 0) return "-";
         const total = winCount + lossCount;
@@ -308,6 +298,7 @@
         return ((winCount / total) * 100).toFixed(3) + "%";
     }
 
+    // 날짜 포맷
     function formatDate(val) {
         if (!val) return "";
         const str = String(val).trim();
@@ -315,11 +306,9 @@
         return match ? match[1] : str;
     }
 
+    // 엑셀 스타일 (원본 유지)
     function applyExcelStyle(ws, headerRowIndex1, headerRowIndex2) {
-        ws['!cols'] = [
-            {wch: 22}, {wch: 18}, {wch: 18},
-            {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}
-        ];
+        ws['!cols'] = [{wch: 22}, {wch: 18}, {wch: 18}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}];
         const range = XLSX.utils.decode_range(ws['!ref']);
         for (let R = range.s.r; R <= range.e.r; ++R) {
             for (let C = range.s.c; C <= range.e.c; ++C) {
@@ -336,8 +325,7 @@
                     }
                 };
                 if (R === headerRowIndex1 || R === headerRowIndex2) {
-                    style.alignment.horizontal = "center";
-                    style.font.bold = true;
+                    style.alignment.horizontal = "center"; style.font.bold = true;
                     style.fill = { fgColor: { rgb: "F2F2F2" } };
                 } else {
                     if (C === 0) style.alignment.horizontal = (R === headerRowIndex1 + 1) ? "center" : "left";
@@ -349,126 +337,7 @@
         }
     }
 
-    function readChunkAsText(chunk) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => resolve(e.target.result);
-            reader.onerror = reject;
-            reader.readAsText(chunk, 'UTF-8');
-        });
-    }
-
-    // 핵심 데이터만 남기고 객체 다이어트
-    function stripRecord(rec) {
-        const lossCount = cleanNumber(rec.raw_loss_count);
-        const winCount = cleanNumber(rec.raw_win_count);
-        const profit = cleanNumber(rec.raw_profit);
-        const fee = cleanNumber(rec.raw_fee);
-        const userLossValue = parseFloat(document.getElementById('lossValue').value) || 834;
-        
-        const calc_loss_amount = userLossValue * lossCount;
-        const calc_realized_pnl = profit - calc_loss_amount - fee;
-        const calc_unrealized_pnl = cleanNumber(rec.last_equity) - cleanNumber(rec.last_balance);
-
-        return {
-            GroupName: rec.GroupName || "",
-            TotalGroups: cleanNumber(rec.TotalGroups),
-            StartDate: formatDate(rec.StartDate),
-            EndDate: formatDate(rec.EndDate),
-            raw_profit: profit,
-            calc_loss_amount: calc_loss_amount,
-            raw_fee: fee,
-            calc_realized_pnl: calc_realized_pnl,
-            calc_unrealized_pnl: calc_unrealized_pnl,
-            calc_net_profit: calc_realized_pnl + calc_unrealized_pnl,
-            raw_win_count: winCount,
-            raw_loss_count: lossCount,
-            calc_win_rate: calculateWinRate(winCount, lossCount)
-        };
-    }
-
-    // 스트리밍 라인 파서 (필요 없는 줄은 즉시 버림)
-    function parseLineStreaming(line, session) {
-        line = line.trim();
-        if (!line || (!line.includes("- ") && !line.includes("[Backtest Report]"))) return;
-
-        const isTotalHeader = line.includes("백테스팅 합산 결과");
-        const isGroupHeader = line.includes("[Backtest Report]") && !isTotalHeader;
-
-        if (isTotalHeader || isGroupHeader) {
-            if (Object.keys(session.currentRecord).length > 0) {
-                const stripped = stripRecord(session.currentRecord);
-                if (session.currentType === 'group') session.currentBatchGroups.push(stripped);
-                else if (session.currentType === 'total') {
-                    session.groups = session.currentBatchGroups;
-                    session.total = stripped;
-                    session.currentBatchGroups = [];
-                }
-            }
-            session.currentRecord = {};
-            session.currentType = isTotalHeader ? 'total' : 'group';
-            return;
-        }
-
-        if (line.includes("- Group Name")) session.currentRecord.GroupName = line.split(":", 2)[1].trim();
-        else if (line.includes("- 전체 그룹 수")) session.currentRecord.TotalGroups = line.split(":")[1];
-        else if (line.includes("- 시작일")) session.currentRecord.StartDate = line.split(":", 2)[1].trim();
-        else if (line.includes("- 종료일")) session.currentRecord.EndDate = line.split(":", 2)[1].trim();
-        else if (line.includes("- Last Balance")) session.currentRecord.last_balance = line.split(":")[1];
-        else if (line.includes("- Last Equity")) session.currentRecord.last_equity = line.split(":")[1];
-        else if (line.includes("- 총 익절 회수")) session.currentRecord.raw_win_count = line.split(":")[1];
-        else if (line.includes("- 총 손절 회수")) session.currentRecord.raw_loss_count = line.split(":")[1];
-        else if (line.includes("- 익절금액") || line.includes("- 익절 금액")) session.currentRecord.raw_profit = line.split(":")[1];
-        else if (line.includes("- Total 수수료")) session.currentRecord.raw_fee = line.split(":")[1];
-    }
-
-    async function processFileInChunks(file, onSessionFound) {
-        let offset = 0;
-        let remainder = "";
-        let currentSession = { total: null, groups: [], currentRecord: {}, currentType: null, currentBatchGroups: [] };
-        const separator = "모든 그룹에 대한 백테스트 완료";
-
-        while (offset < file.size) {
-            const chunk = file.slice(offset, offset + CHUNK_SIZE);
-            const text = await readChunkAsText(chunk);
-            const lines = (remainder + text).split(/\r?\n/);
-            remainder = lines.pop();
-
-            for (let line of lines) {
-                if (line.includes(separator)) {
-                    // 세션 종료 시 즉시 콜백으로 넘겨서 메모리에서 비움
-                    if (Object.keys(currentSession.currentRecord).length > 0) {
-                        const stripped = stripRecord(currentSession.currentRecord);
-                        if (currentSession.currentType === 'total') {
-                            currentSession.total = stripped;
-                            currentSession.groups = currentSession.currentBatchGroups;
-                        }
-                    }
-                    if (currentSession.total) {
-                        onSessionFound(currentSession);
-                    }
-                    // 초기화
-                    currentSession = { total: null, groups: [], currentRecord: {}, currentType: null, currentBatchGroups: [] };
-                    continue;
-                }
-                parseLineStreaming(line, currentSession);
-            }
-            offset += CHUNK_SIZE;
-            // 의도적인 비동기 지연으로 가비지 컬렉션 기회 제공
-            await new Promise(r => setTimeout(r, 0));
-        }
-        
-        // 마지막 세션 처리
-        if (remainder) parseLineStreaming(remainder, currentSession);
-        if (Object.keys(currentSession.currentRecord).length > 0) {
-            const stripped = stripRecord(currentSession.currentRecord);
-            if (currentSession.currentType === 'total') {
-                currentSession.total = stripped;
-                currentSession.groups = currentSession.currentBatchGroups;
-            }
-        }
-        if (currentSession.total) onSessionFound(currentSession);
-    }
+    // --- 대용량 처리를 위한 스트리밍 로직 ---
 
     async function processAllLogs() {
         const fileInputs = document.getElementById('logFiles');
@@ -482,47 +351,131 @@
         }
 
         statusDiv.className = 'status-msg info';
-        statusDiv.innerText = '⏳ 초고속 메모리 다이어트 분석 중...';
+        statusDiv.innerText = '⏳ 대용량 분석 진행 중...';
         progressContainer.style.display = 'block';
-        
-        groupFiles = {}; 
 
-        const files = Array.from(fileInputs.files);
-        for (let i = 0; i < files.length; i++) {
-            const file = files[i];
-            
-            let sIdx = 0;
-            await processFileInChunks(file, (sessionData) => {
-                const groupKey = `Group_${sIdx}`;
-                if (!groupFiles[groupKey]) groupFiles[groupKey] = [];
-                groupFiles[groupKey].push({
-                    fileName: file.name,
-                    data: { total: sessionData.total, groups: sessionData.groups }
-                });
-                sIdx++;
-            });
+        groupFiles = {};
+        const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB
 
-            const totalProgress = Math.round(((i + 1) / files.length) * 100);
-            document.getElementById('progressBar').style.width = totalProgress + '%';
-            document.getElementById('progressText').innerText = `${totalProgress}% (${i+1}/${files.length} 완료)`;
+        for (let i = 0; i < fileInputs.files.length; i++) {
+            const file = fileInputs.files[i];
+            await processFileInChunks(file, CHUNK_SIZE);
             
-            // 파일 하나 끝날 때마다 가비지 컬렉션 유도 루프
-            await new Promise(r => setTimeout(r, 100));
+            const progress = Math.round(((i + 1) / fileInputs.files.length) * 100);
+            document.getElementById('progressBar').style.width = progress + '%';
+            document.getElementById('progressText').innerText = progress + '%';
         }
+
         finishProcessing();
+    }
+
+    function processFileInChunks(file, chunkSize) {
+        return new Promise((resolve) => {
+            let offset = 0;
+            let leftover = "";
+            let currentGroupIdx = 0;
+            let state = resetState();
+
+            const reader = new FileReader();
+
+            reader.onload = (e) => {
+                const text = leftover + e.target.result;
+                const lines = text.split(/\r?\n/);
+                leftover = lines.pop(); // 불완전한 마지막 줄 보관
+
+                for (const line of lines) {
+                    if (line.includes("모든 그룹에 대한 백테스트 완료")) {
+                        saveStateToGroup(file.name, currentGroupIdx, state);
+                        currentGroupIdx++;
+                        state = resetState();
+                        continue;
+                    }
+                    parseLineIncremental(line, state);
+                }
+
+                offset += chunkSize;
+                if (offset < file.size) {
+                    readNext();
+                } else {
+                    if (leftover) parseLineIncremental(leftover, state);
+                    saveStateToGroup(file.name, currentGroupIdx, state);
+                    resolve();
+                }
+            };
+
+            function readNext() {
+                const blob = file.slice(offset, offset + chunkSize);
+                reader.readAsText(blob, 'UTF-8');
+            }
+            readNext();
+        });
+    }
+
+    function resetState() {
+        return { currentRecord: {}, currentType: null, currentBatchGroups: [], lastCompleteTotal: null };
+    }
+
+    function parseLineIncremental(line, state) {
+        const l = line.trim();
+        if (!l) return;
+
+        const isTotal = l.includes("[Backtest Report]") && l.includes("백테스팅 합산 결과");
+        const isGroup = l.includes("[Backtest Report]") && !l.includes("백테스팅 합산 결과");
+
+        if (isTotal || isGroup) {
+            if (Object.keys(state.currentRecord).length > 0) finalizeRecord(state);
+            state.currentRecord = {};
+            state.currentType = isTotal ? 'total' : 'group';
+            return;
+        }
+
+        if (l.includes("- Group Name")) state.currentRecord.GroupName = l.split(":", 2)[1].trim();
+        else if (l.includes("- 전체 그룹 수")) state.currentRecord.TotalGroups = cleanNumber(l.split(":")[1]);
+        else if (l.includes("- 시작일")) state.currentRecord.StartDate = formatDate(l.split(":", 2)[1].trim());
+        else if (l.includes("- 종료일")) state.currentRecord.EndDate = formatDate(l.split(":", 2)[1].trim());
+        else if (l.includes("- Last Balance")) state.currentRecord.last_balance = cleanNumber(l.split(":")[1]);
+        else if (l.includes("- Last Equity")) state.currentRecord.last_equity = cleanNumber(l.split(":")[1]);
+        else if (l.includes("- 총 익절 회수")) state.currentRecord.raw_win_count = cleanNumber(l.split(":")[1]);
+        else if (l.includes("- 총 손절 회수")) state.currentRecord.raw_loss_count = cleanNumber(l.split(":")[1]);
+        else if (l.includes("- 익절금액") || l.includes("- 익절 금액")) state.currentRecord.raw_profit = cleanNumber(l.split(":")[1]);
+        else if (l.includes("- Total 수수료")) state.currentRecord.raw_fee = cleanNumber(l.split(":")[1]);
+    }
+
+    function finalizeRecord(state) {
+        const rec = state.currentRecord;
+        const lossCount = rec.raw_loss_count || 0;
+        const winCount = rec.raw_win_count || 0;
+        const profit = rec.raw_profit || 0;
+        const fee = rec.raw_fee || 0;
+        const userLossValue = parseFloat(document.getElementById('lossValue').value) || 834;
+
+        rec.calc_loss_amount = userLossValue * lossCount;
+        rec.calc_realized_pnl = profit - rec.calc_loss_amount - fee;
+        rec.calc_unrealized_pnl = (rec.last_equity || 0) - (rec.last_balance || 0);
+        rec.calc_net_profit = rec.calc_realized_pnl + rec.calc_unrealized_pnl;
+        rec.calc_win_rate = calculateWinRate(winCount, lossCount);
+
+        if (state.currentType === 'group') state.currentBatchGroups.push({...rec});
+        else if (state.currentType === 'total') state.lastCompleteTotal = {...rec};
+    }
+
+    function saveStateToGroup(fileName, groupIdx, state) {
+        if (Object.keys(state.currentRecord).length > 0) finalizeRecord(state);
+        if (!state.lastCompleteTotal && state.currentBatchGroups.length === 0) return;
+
+        const key = `Group_${groupIdx}`;
+        if (!groupFiles[key]) groupFiles[key] = [];
+        groupFiles[key].push({ fileName, data: { total: state.lastCompleteTotal, groups: state.currentBatchGroups } });
     }
 
     function finishProcessing() {
         const statusDiv = document.getElementById('statusUpload');
-        const progressContainer = document.getElementById('progressContainer');
         if (Object.keys(groupFiles).length === 0) {
-            statusDiv.className = 'status-msg error';
-            statusDiv.innerText = '❌ 유효한 데이터를 찾을 수 없습니다.';
+            statusDiv.className = 'status-msg error'; statusDiv.innerText = '❌ 데이터를 찾을 수 없습니다.';
             return;
         }
         statusDiv.className = 'status-msg success';
-        statusDiv.innerText = `✅ 분석 완료! ${Object.keys(groupFiles).length}개 그룹 발견됨`;
-        setTimeout(() => progressContainer.style.display = 'none', 1500);
+        statusDiv.innerText = `✅ 완료! ${Object.keys(groupFiles).length}개 그룹 발견`;
         document.getElementById('showGroupBtn').disabled = false;
         document.getElementById('downloadAllBtn').disabled = false;
     }
@@ -531,17 +484,12 @@
         const section = document.getElementById('groupsSection');
         const grid = document.getElementById('groupsGrid');
         grid.innerHTML = '';
-        const sortedGroups = Object.keys(groupFiles).sort((a, b) => parseInt(a.split('_')[1]) - parseInt(b.split('_')[1]));
-        sortedGroups.forEach(groupKey => {
-            const groupNum = groupKey.split('_')[1];
-            const groupLabel = String.fromCharCode(65 + parseInt(groupNum));
+        Object.keys(groupFiles).sort((a,b) => parseInt(a.split('_')[1]) - parseInt(b.split('_')[1])).forEach(key => {
+            const num = key.split('_')[1];
+            const label = String.fromCharCode(65 + parseInt(num));
             const card = document.createElement('div');
             card.className = 'group-card';
-            card.innerHTML = `
-                <div class="group-name">그룹 ${groupLabel}</div>
-                <p style="color: #666; font-size: 0.9em; margin: 5px 0;">${groupFiles[groupKey].length}개 파일 포함</p>
-                <button class="group-btn" onclick="downloadGroup('${groupKey}', '${groupLabel}')">다운로드</button>
-            `;
+            card.innerHTML = `<div class="group-name">그룹 ${label}</div><p>${groupFiles[key].length}개 파일</p><button class="group-btn" onclick="downloadGroup('${key}', '${label}')">다운로드</button>`;
             grid.appendChild(card);
         });
         section.style.display = 'block';
@@ -550,35 +498,30 @@
 
     function downloadGroup(groupKey, groupLabel) {
         const fileData = groupFiles[groupKey];
-        if (!fileData || fileData.length === 0) return;
-        
         let allGroups = [], startDate = null, endDate = null;
-        let tProfit = 0, tLoss = 0, tFee = 0, tRealized = 0, tUnrealized = 0, tNetProfit = 0, tWin = 0, tLossC = 0, tGroupC = 0;
+        let tProfit=0, tLoss=0, tFee=0, tReal=0, tUnreal=0, tNet=0, tWin=0, tLossC=0, tCount=0;
 
         fileData.forEach(file => {
             const d = file.data;
             if (d.total) {
-                tGroupC += d.total.TotalGroups || 0;
-                tProfit += d.total.raw_profit || 0;
-                tLoss += d.total.calc_loss_amount || 0;
-                tFee += d.total.raw_fee || 0;
-                tRealized += d.total.calc_realized_pnl || 0;
-                tUnrealized += d.total.calc_unrealized_pnl || 0;
-                tNetProfit += d.total.calc_net_profit || 0;
-                tWin += d.total.raw_win_count || 0;
+                tCount += d.total.TotalGroups || 0; tProfit += d.total.raw_profit || 0;
+                tLoss += d.total.calc_loss_amount || 0; tFee += d.total.raw_fee || 0;
+                tReal += d.total.calc_realized_pnl || 0; tUnreal += d.total.calc_unrealized_pnl || 0;
+                tNet += d.total.calc_net_profit || 0; tWin += d.total.raw_win_count || 0;
                 tLossC += d.total.raw_loss_count || 0;
-                if (!startDate) startDate = d.total.StartDate;
-                endDate = d.total.EndDate;
+                if(!startDate) startDate = d.total.StartDate; endDate = d.total.EndDate;
             }
             if (d.groups) allGroups = allGroups.concat(d.groups);
         });
 
-        allGroups.sort((a, b) => (a.GroupName || "").localeCompare(b.GroupName || ""));
         const totalHeaders = ["전체 그룹 수", "시작일", "종료일", "총익절금액", "총손절금액", "총수수료", "총확정손익금", "총미실현손익", "총순이익", "총익절횟수", "총손절횟수", "전체승률"];
-        const totalRow = [tGroupC, startDate, endDate, tProfit, tLoss, tFee, tRealized, tUnrealized, tNetProfit, tWin, tLossC, calculateWinRate(tWin, tLossC)];
+        const totalRow = [tCount, startDate, endDate, tProfit, tLoss, tFee, tReal, tUnreal, tNet, tWin, tLossC, calculateWinRate(tWin, tLossC)];
         const groupHeaders = ["Group Name", "시작일", "종료일", "익절금액", "손절금액", "수수료", "확정손익금", "미실현손익", "순이익", "익절횟수", "손절횟수", "승률"];
+        
         let wsData = [totalHeaders, totalRow, [], [], groupHeaders];
-        allGroups.forEach(g => wsData.push([g.GroupName, g.StartDate, g.EndDate, g.raw_profit, g.calc_loss_amount, g.raw_fee, g.calc_realized_pnl, g.calc_unrealized_pnl, g.calc_net_profit, g.raw_win_count, g.raw_loss_count, g.calc_win_rate]));
+        allGroups.sort((a,b)=>(a.GroupName||"").localeCompare(b.GroupName||"")).forEach(g => {
+            wsData.push([g.GroupName, g.StartDate, g.EndDate, g.raw_profit, g.calc_loss_amount, g.raw_fee, g.calc_realized_pnl, g.calc_unrealized_pnl, g.calc_net_profit, g.raw_win_count, g.raw_loss_count, g.calc_win_rate]);
+        });
 
         const ws = XLSX.utils.aoa_to_sheet(wsData);
         applyExcelStyle(ws, 0, 4);
@@ -588,10 +531,8 @@
     }
 
     function downloadAllGroups() {
-        const sortedGroups = Object.keys(groupFiles).sort((a, b) => parseInt(a.split('_')[1]) - parseInt(b.split('_')[1]));
-        sortedGroups.forEach((groupKey, index) => {
-            const groupLabel = String.fromCharCode(65 + index);
-            setTimeout(() => downloadGroup(groupKey, groupLabel), index * 700);
+        Object.keys(groupFiles).sort((a,b) => parseInt(a.split('_')[1]) - parseInt(b.split('_')[1])).forEach((key, i) => {
+            setTimeout(() => downloadGroup(key, String.fromCharCode(65 + i)), i * 500);
         });
     }
 </script>
