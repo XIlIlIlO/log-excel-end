@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>백테스트 통합 분석 도구 (Ultra Pro - Auto Sum)</title>
+    <title>백테스트 통합 분석 도구 (Ultra Pro - Auto Sum + MDD)</title>
     <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.min.js"></script>
     <style>
         * { box-sizing: border-box; }
@@ -79,7 +79,7 @@
 <div class="main-container">
     <div class="header">
         <h1>📊 백테스트 통합 분석 도구</h1>
-        <p>Ultra Pro - 개별 그룹 자동 합산 모드</p>
+        <p>Ultra Pro - 개별 그룹 / 합산 결과 MDD 자동 반영</p>
     </div>
 
     <div class="wrapper">
@@ -143,11 +143,18 @@
     const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB Chunk
 
     function cleanNumber(valueStr) {
-        if (!valueStr) return 0;
+        if (valueStr === null || valueStr === undefined || valueStr === "") return 0;
         if (typeof valueStr === 'number') return valueStr;
+
         const cleanStr = String(valueStr).replace(/[^\d.-]/g, '');
         const num = parseFloat(cleanStr);
         return isNaN(num) ? 0 : num;
+    }
+
+    function getLineValue(line) {
+        const idx = line.indexOf(':');
+        if (idx === -1) return "";
+        return line.slice(idx + 1).trim();
     }
 
     function calculateWinRate(winCount, lossCount) {
@@ -157,61 +164,99 @@
         return ((winCount / total) * 100).toFixed(3) + "%";
     }
 
-    function formatDate(val) {
+    function formatDateTime(val) {
         if (!val) return "";
         const str = String(val).trim();
-        const match = str.match(/^(\d{4}-\d{2}-\d{2}\s\d{2})/);
-        if (match) return match[1]; 
+
+        const match = str.match(/(\d{4})[-\/](\d{2})[-\/](\d{2})\s+(\d{2}):(\d{2})/);
+        if (match) {
+            return `${match[1]}-${match[2]}-${match[3]} ${match[4]}:${match[5]}`;
+        }
+
         return str;
     }
 
+    function parseMddLine(line) {
+        const raw = getLineValue(line);
+
+        const beforeParen = raw.split('(')[0].trim();
+        const mddValue = cleanNumber(beforeParen);
+
+        const timeMatch = raw.match(/\(([^)]+)\)/);
+        const mddTime = timeMatch ? formatDateTime(timeMatch[1]) : "";
+
+        return {
+            value: mddValue,
+            time: mddTime
+        };
+    }
+
     function applyExcelStyle(ws, headerRowIndex1, headerRowIndex2) {
-        ws['!cols'] = [
-            {wch: 22}, {wch: 18}, {wch: 18},
-            {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}
-        ];
-        const range = XLSX.utils.decode_range(ws['!ref']);
-        for (let R = range.s.r; R <= range.e.r; ++R) {
-            for (let C = range.s.c; C <= range.e.c; ++C) {
-                const cellAddress = XLSX.utils.encode_cell({r: R, c: C});
-                if (!ws[cellAddress]) continue;
-                let style = {
-                    font: { name: "맑은 고딕", sz: 11 },
-                    alignment: { vertical: "center" },
-                    border: {
-                        top: { style: "thin", color: { rgb: "D3D3D3" } },
-                        bottom: { style: "thin", color: { rgb: "D3D3D3" } },
-                        left: { style: "thin", color: { rgb: "D3D3D3" } },
-                        right: { style: "thin", color: { rgb: "D3D3D3" } }
-                    }
-                };
-                if (R === headerRowIndex1 || R === headerRowIndex2) {
-                    style.alignment.horizontal = "center";
-                    style.font.bold = true;
-                    style.fill = { fgColor: { rgb: "F2F2F2" } };
-                } else {
-                    if (C === 0) {
-                        if (R === headerRowIndex1 + 1) style.alignment.horizontal = "center";
-                        else style.alignment.horizontal = "left";
-                    } else if (C === 1 || C === 2) {
-                        style.alignment.horizontal = "center";
-                    } else {
-                        style.alignment.horizontal = "right";
-                    }
+    ws['!cols'] = [
+        {wch: 22}, {wch: 18}, {wch: 18},
+        {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17}, {wch: 17},
+        {wch: 49}, {wch: 33}, {wch: 17}
+    ];
+
+    const range = XLSX.utils.decode_range(ws['!ref']);
+
+    for (let R = range.s.r; R <= range.e.r; ++R) {
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+            const cellAddress = XLSX.utils.encode_cell({r: R, c: C});
+            if (!ws[cellAddress]) continue;
+
+            let style = {
+                font: { name: "맑은 고딕", sz: 11 },
+                alignment: { 
+                    vertical: "center",
+                    wrapText: true
+                },
+                border: {
+                    top: { style: "thin", color: { rgb: "D3D3D3" } },
+                    bottom: { style: "thin", color: { rgb: "D3D3D3" } },
+                    left: { style: "thin", color: { rgb: "D3D3D3" } },
+                    right: { style: "thin", color: { rgb: "D3D3D3" } }
                 }
-                ws[cellAddress].s = style;
+            };
+
+            if (R === headerRowIndex1 || R === headerRowIndex2) {
+                style.alignment.horizontal = "center";
+                style.font.bold = true;
+                style.fill = { fgColor: { rgb: "F2F2F2" } };
+            } else {
+                if (C === 0) {
+                    if (R === headerRowIndex1 + 1) style.alignment.horizontal = "center";
+                    else style.alignment.horizontal = "left";
+                } else if (C === 1 || C === 2 || C === 12) {
+                    style.alignment.horizontal = "center";
+                } else {
+                    style.alignment.horizontal = "right";
+                }
             }
+
+            ws[cellAddress].s = style;
         }
     }
+}
 
     class StreamLogParser {
         constructor(fileName) {
             this.fileName = fileName;
             this.groupIndex = 0;
+
             this.currentRecord = {};
             this.currentType = null; 
+            // currentType:
+            // null  : 아직 백테스트 Report 진입 전
+            // group : 개별 그룹 Backtest Report
+            // total : [Backtest Report] 백테스팅 합산 결과
+
             this.currentBatchGroups = [];
-            // Total 저장 로직 제거 (직접 계산할 예정)
+            this.currentBatchTotal = null;
+        }
+
+        hasCurrentBatchData() {
+            return this.currentBatchGroups.length > 0 || this.currentBatchTotal !== null;
         }
 
         processRecord(rec) {
@@ -219,6 +264,7 @@
             const winCount = rec.raw_win_count || 0;
             const profit = rec.raw_profit || 0;
             const fee = rec.raw_fee || 0;
+
             const userLossValue = parseFloat(document.getElementById('lossValue').value) || 834;
             
             const calculatedLoss = userLossValue * lossCount;
@@ -230,38 +276,52 @@
             rec.calc_unrealized_pnl = unrealizedPnl;
             rec.calc_net_profit = realizedPnl + unrealizedPnl;
             rec.calc_win_rate = calculateWinRate(winCount, lossCount);
+
+            if (rec.mdd_value === undefined) rec.mdd_value = "";
+            if (rec.mdd_time === undefined) rec.mdd_time = "";
         }
 
         pushCurrentRecord() {
-            if (Object.keys(this.currentRecord).length > 0) {
-                this.processRecord(this.currentRecord);
-                
-                // 오직 그룹 데이터만 수집 (Total은 skip)
-                if (this.currentType === 'group') {
-                    this.currentBatchGroups.push(this.currentRecord);
-                }
+            if (Object.keys(this.currentRecord).length === 0) return;
+
+            this.processRecord(this.currentRecord);
+
+            if (this.currentType === 'group') {
+                this.currentBatchGroups.push(this.currentRecord);
+            } else if (this.currentType === 'total') {
+                this.currentBatchTotal = this.currentRecord;
             }
-            this.currentRecord = {}; 
+
+            this.currentRecord = {};
         }
 
         finalizeGroupSection() {
             this.pushCurrentRecord();
+
+            if (!this.hasCurrentBatchData()) {
+                this.currentRecord = {};
+                this.currentBatchGroups = [];
+                this.currentBatchTotal = null;
+                this.currentType = null;
+                return;
+            }
+
             const groupKey = `Group_${this.groupIndex}`;
             if (!groupFiles[groupKey]) groupFiles[groupKey] = [];
 
-            // 그룹 데이터가 있으면 저장
-            if (this.currentBatchGroups.length > 0) {
-                 groupFiles[groupKey].push({
-                    fileName: this.fileName,
-                    data: {
-                        groups: [...this.currentBatchGroups]
-                    }
-                });
-            }
+            groupFiles[groupKey].push({
+                fileName: this.fileName,
+                data: {
+                    groups: [...this.currentBatchGroups],
+                    total: this.currentBatchTotal
+                }
+            });
 
             this.groupIndex++;
+
             this.currentRecord = {};
             this.currentBatchGroups = [];
+            this.currentBatchTotal = null;
             this.currentType = null;
         }
 
@@ -269,36 +329,67 @@
             line = line.trim();
             if (!line) return;
 
-            if (line.startsWith("- Group Name")) { this.currentRecord.GroupName = line.split(":", 2)[1].trim(); return; }
-            
             const isSeparator = line.includes("모든 그룹에 대한 백테스트 완료");
-            if (isSeparator) { this.finalizeGroupSection(); return; }
-
-            const isTotalHeader = line.includes("백테스팅 합산 결과");
-            const isReportHeader = line.includes("[Backtest Report]");
-
-            if (isReportHeader) {
-                if (Object.keys(this.currentRecord).length > 0) {
-                    this.processRecord(this.currentRecord);
-                    if (this.currentType === 'group') this.currentBatchGroups.push(this.currentRecord);
-                }
-                this.currentRecord = {};
-                // [변경] 합산 결과 헤더가 나오면 'skip' 모드로 전환하여 파싱 무시
-                this.currentType = isTotalHeader ? 'skip' : 'group';
+            if (isSeparator) {
+                this.finalizeGroupSection();
                 return;
             }
 
-            // 'skip' 모드가 아닐 때만 데이터 파싱
-            if (this.currentType === 'group') {
-                if (line.includes("- 전체 그룹 수")) this.currentRecord.TotalGroups = cleanNumber(line.split(":")[1]);
-                else if (line.includes("- 시작일")) this.currentRecord.StartDate = formatDate(line.split(":", 2)[1].trim());
-                else if (line.includes("- 종료일")) this.currentRecord.EndDate = formatDate(line.split(":", 2)[1].trim());
-                else if (line.includes("- Last Balance")) this.currentRecord.last_balance = cleanNumber(line.split(":")[1]);
-                else if (line.includes("- Last Equity")) this.currentRecord.last_equity = cleanNumber(line.split(":")[1]);
-                else if (line.includes("- 총 익절 회수")) this.currentRecord.raw_win_count = cleanNumber(line.split(":")[1]);
-                else if (line.includes("- 총 손절 회수")) this.currentRecord.raw_loss_count = cleanNumber(line.split(":")[1]);
-                else if (line.includes("- 익절금액") || line.includes("- 익절 금액")) this.currentRecord.raw_profit = cleanNumber(line.split(":")[1]);
-                else if (line.includes("- Total 수수료")) this.currentRecord.raw_fee = cleanNumber(line.split(":")[1]);
+            const isReportHeader = line.includes("[Backtest Report]");
+            const isTotalHeader = line.includes("백테스팅 합산 결과");
+
+            if (isReportHeader) {
+                const previousType = this.currentType;
+
+                this.pushCurrentRecord();
+
+                // 합산 결과가 끝난 뒤 바로 다음 [Backtest Report]가 오면
+                // 하나의 백테스트 묶음이 끝난 것으로 보고 엑셀 분리 기준을 유지한다.
+                if (
+                    previousType === 'total' &&
+                    !isTotalHeader &&
+                    this.hasCurrentBatchData()
+                ) {
+                    this.finalizeGroupSection();
+                }
+
+                this.currentRecord = {};
+                this.currentType = isTotalHeader ? 'total' : 'group';
+                return;
+            }
+
+            if (this.currentType !== 'group' && this.currentType !== 'total') {
+                return;
+            }
+
+            if (line.includes("- Group Name")) {
+                this.currentRecord.GroupName = getLineValue(line);
+            } else if (line.includes("- 전체 그룹 수")) {
+                this.currentRecord.TotalGroups = cleanNumber(getLineValue(line));
+            } else if (line.includes("- 시작일")) {
+                this.currentRecord.StartDate = formatDateTime(getLineValue(line));
+            } else if (line.includes("- 종료일")) {
+                this.currentRecord.EndDate = formatDateTime(getLineValue(line));
+            } else if (line.includes("- Start Balance")) {
+                this.currentRecord.start_balance = cleanNumber(getLineValue(line));
+            } else if (line.includes("- Last Balance")) {
+                this.currentRecord.last_balance = cleanNumber(getLineValue(line));
+            } else if (line.includes("- Last Equity")) {
+                this.currentRecord.last_equity = cleanNumber(getLineValue(line));
+            } else if (line.includes("- 총 익절 회수")) {
+                this.currentRecord.raw_win_count = cleanNumber(getLineValue(line));
+            } else if (line.includes("- 총 손절 회수")) {
+                this.currentRecord.raw_loss_count = cleanNumber(getLineValue(line));
+            } else if (line.includes("- 익절금액") || line.includes("- 익절 금액")) {
+                this.currentRecord.raw_profit = cleanNumber(getLineValue(line));
+            } else if (line.includes("- 손절금액") || line.includes("- 손절 금액")) {
+                this.currentRecord.raw_loss_amount_from_log = cleanNumber(getLineValue(line));
+            } else if (line.includes("- Total 수수료")) {
+                this.currentRecord.raw_fee = cleanNumber(getLineValue(line));
+            } else if (line.includes("- 최대 미실현 손익")) {
+                const mdd = parseMddLine(line);
+                this.currentRecord.mdd_value = mdd.value;
+                this.currentRecord.mdd_time = mdd.time;
             }
         }
     }
@@ -318,7 +409,6 @@
         statusDiv.innerText = '⏳ GB급 대용량 처리 모드 (메모리 보호 중...)';
         progressContainer.style.display = 'block';
         
-        let filesProcessed = 0;
         const totalFiles = fileInputs.files.length;
         groupFiles = {}; 
 
@@ -351,6 +441,7 @@
                     if (line.trim().length > 0) {
                         parser.parseLine(line);
                     }
+
                     lastNewlineIndex = nextNewlineIndex + 1;
                 }
 
@@ -358,7 +449,8 @@
                 data = null; 
 
                 offset += CHUNK_SIZE;
-                const percent = Math.min(100, Math.round((offset / fileSize) * 100));
+
+                const percent = fileSize === 0 ? 100 : Math.min(100, Math.round((offset / fileSize) * 100));
                 const totalProgress = Math.round(((fileIndex * 100) + percent) / totalFiles);
                 
                 document.getElementById('progressBar').style.width = totalProgress + '%';
@@ -367,18 +459,17 @@
                 if (offset < fileSize) {
                     setTimeout(readNextChunk, 0);
                 } else {
-                    if (leftover.trim().length > 0) parser.parseLine(leftover);
-                    if (Object.keys(parser.currentRecord).length > 0 || parser.currentBatchGroups.length > 0) {
-                         parser.finalizeGroupSection(); 
+                    if (leftover && leftover.trim().length > 0) {
+                        parser.parseLine(leftover);
                     }
+
+                    parser.finalizeGroupSection();
                     
                     parser = null;
                     chunkReader = null;
                     leftover = null;
 
-                    filesProcessed++;
-                    
-                    document.getElementById('progressText').innerText = `RAM 정리 중... (1초 대기)`;
+                    document.getElementById('progressText').innerText = `RAM 정리 중...`;
                     setTimeout(() => processFile(fileIndex + 1), 1000);
                 }
             };
@@ -411,7 +502,7 @@
         }
 
         statusDiv.className = 'status-msg success';
-        statusDiv.innerText = `✅ 분석 완료! ${Object.keys(groupFiles).length}개 그룹 발견됨`;
+        statusDiv.innerText = `✅ 분석 완료! ${Object.keys(groupFiles).length}개 백테스트 묶음 발견됨`;
         
         setTimeout(() => {
             progressContainer.style.display = 'none';
@@ -454,88 +545,231 @@
         section.scrollIntoView({ behavior: 'smooth' });
     }
 
-    // [핵심 변경] downloadGroup 함수 내에서 Total 직접 계산
-    function downloadGroup(groupKey, groupLabel) {
-        const fileData = groupFiles[groupKey];
-        if (!fileData || fileData.length === 0) return;
+    function findWorstMdd(records) {
+        let worstValue = null;
+        let worstTime = "";
 
-        let allGroups = [];
-        
-        // 데이터 병합
-        fileData.forEach(file => {
-            if (file.data.groups) {
-                allGroups = allGroups.concat(file.data.groups);
-            }
-        });
-        
-        // [자동 합산 로직 시작]
-        let sumProfit = 0;
-        let sumLossAmount = 0;
-        let sumFee = 0;
-        let sumRealized = 0;
-        let sumUnrealized = 0;
-        let sumNetProfit = 0;
-        let sumWinCount = 0;
-        let sumLossCount = 0;
-        
-        let minStartDate = "";
-        let maxEndDate = "";
+        records.forEach(r => {
+            if (!r) return;
 
-        allGroups.forEach(g => {
-            sumProfit += (g.raw_profit || 0);
-            sumLossAmount += (g.calc_loss_amount || 0);
-            sumFee += (g.raw_fee || 0);
-            sumRealized += (g.calc_realized_pnl || 0);
-            sumUnrealized += (g.calc_unrealized_pnl || 0);
-            sumNetProfit += (g.calc_net_profit || 0);
-            sumWinCount += (g.raw_win_count || 0);
-            sumLossCount += (g.raw_loss_count || 0);
+            const value = r.mdd_value;
 
-            // 날짜 계산 (문자열 비교)
-            if (g.StartDate) {
-                if (!minStartDate || g.StartDate < minStartDate) minStartDate = g.StartDate;
-            }
-            if (g.EndDate) {
-                if (!maxEndDate || g.EndDate > maxEndDate) maxEndDate = g.EndDate;
+            if (typeof value === 'number' && !isNaN(value)) {
+                if (worstValue === null || value < worstValue) {
+                    worstValue = value;
+                    worstTime = r.mdd_time || "";
+                }
             }
         });
 
-        const totalGroupCount = allGroups.length;
-        const totalWinRate = calculateWinRate(sumWinCount, sumLossCount);
-        // [자동 합산 로직 끝]
-
-        allGroups.sort((a, b) => (a.GroupName || "").localeCompare((b.GroupName || "")));
-
-        const totalHeaders = ["전체 그룹 수", "시작일", "종료일", "총익절금액", "총손절금액", "총수수료", "총확정손익금", "총미실현손익", "총순이익", "총익절횟수", "총손절횟수", "전체승률"];
-        
-        // 계산된 값으로 Total 행 생성
-        const totalRow = [
-            totalGroupCount, minStartDate, maxEndDate,
-            sumProfit, sumLossAmount, sumFee,
-            sumRealized, sumUnrealized, sumNetProfit,
-            sumWinCount, sumLossCount, totalWinRate
-        ];
-
-        const groupHeaders = ["Group Name", "시작일", "종료일", "익절금액", "손절금액", "수수료", "확정손익금", "미실현손익", "순이익", "익절횟수", "손절횟수", "승률"];
-        
-        let wsData = [totalHeaders, totalRow, [], [], groupHeaders];
-
-        allGroups.forEach(g => {
-            wsData.push([
-                g.GroupName, g.StartDate, g.EndDate,
-                g.raw_profit, g.calc_loss_amount, g.raw_fee,
-                g.calc_realized_pnl, g.calc_unrealized_pnl, g.calc_net_profit,
-                g.raw_win_count, g.raw_loss_count, g.calc_win_rate
-            ]);
-        });
-
-        const ws = XLSX.utils.aoa_to_sheet(wsData);
-        applyExcelStyle(ws, 0, 4);
-
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Total_Result");
-        XLSX.writeFile(wb, `그룹${groupLabel}_통합결과.xlsx`);
+        return {
+            value: worstValue === null ? "" : worstValue,
+            time: worstTime
+        };
     }
+
+    function buildTopSummary(totalRecords, allGroups) {
+    const recordsToSum = totalRecords.length > 0 ? totalRecords : allGroups;
+
+    let sumProfit = 0;
+    let sumLossAmount = 0;
+    let sumFee = 0;
+    let sumRealized = 0;
+    let sumUnrealized = 0;
+    let sumNetProfit = 0;
+    let sumWinCount = 0;
+    let sumLossCount = 0;
+
+    let minStartDate = "";
+    let maxEndDate = "";
+
+    recordsToSum.forEach(r => {
+        sumProfit += (r.raw_profit || 0);
+        sumLossAmount += (r.calc_loss_amount || 0);
+        sumFee += (r.raw_fee || 0);
+        sumRealized += (r.calc_realized_pnl || 0);
+        sumUnrealized += (r.calc_unrealized_pnl || 0);
+        sumNetProfit += (r.calc_net_profit || 0);
+        sumWinCount += (r.raw_win_count || 0);
+        sumLossCount += (r.raw_loss_count || 0);
+
+        if (r.StartDate) {
+            if (!minStartDate || r.StartDate < minStartDate) minStartDate = r.StartDate;
+        }
+
+        if (r.EndDate) {
+            if (!maxEndDate || r.EndDate > maxEndDate) maxEndDate = r.EndDate;
+        }
+    });
+
+    let totalGroupCount = 0;
+
+    if (totalRecords.length > 0) {
+        totalRecords.forEach(t => {
+            totalGroupCount += (t.TotalGroups || 0);
+        });
+
+        if (totalGroupCount === 0) {
+            totalGroupCount = allGroups.length;
+        }
+    } else {
+        totalGroupCount = allGroups.length;
+    }
+
+    const mddTimeLines = [];
+    const mddValueLines = [];
+    let totalMddSum = 0;
+    let hasMdd = false;
+
+    totalRecords.forEach((t, index) => {
+        const logLabel = t.sourceFileName ? t.sourceFileName : `로그 ${index + 1}`;
+
+        const mddTime = t.mdd_time || "-";
+        const mddValue = typeof t.mdd_value === "number" && !isNaN(t.mdd_value)
+            ? t.mdd_value
+            : "";
+
+        mddTimeLines.push(`${index + 1}. ${logLabel} : ${mddTime}`);
+        mddValueLines.push(`${index + 1}. ${logLabel} : ${mddValue}`);
+
+        if (typeof t.mdd_value === "number" && !isNaN(t.mdd_value)) {
+            totalMddSum += t.mdd_value;
+            hasMdd = true;
+        }
+    });
+
+    return {
+        totalGroupCount,
+        minStartDate,
+        maxEndDate,
+        sumProfit,
+        sumLossAmount,
+        sumFee,
+        sumRealized,
+        sumUnrealized,
+        sumNetProfit,
+        sumWinCount,
+        sumLossCount,
+        totalWinRate: calculateWinRate(sumWinCount, sumLossCount),
+        logMddTimes: mddTimeLines.join("\n"),
+        logMddValues: mddValueLines.join("\n"),
+        totalMddSum: hasMdd ? Number(totalMddSum.toFixed(2)) : ""
+    };
+}
+
+    function downloadGroup(groupKey, groupLabel) {
+    const fileData = groupFiles[groupKey];
+    if (!fileData || fileData.length === 0) return;
+
+    let allGroups = [];
+    let totalRecords = [];
+    
+    fileData.forEach(file => {
+        if (file.data.groups) {
+            allGroups = allGroups.concat(file.data.groups);
+        }
+
+        if (file.data.total) {
+            totalRecords.push({
+                ...file.data.total,
+                sourceFileName: file.fileName
+            });
+        }
+    });
+
+    allGroups.sort((a, b) => (a.GroupName || "").localeCompare((b.GroupName || "")));
+
+    const topSummary = buildTopSummary(totalRecords, allGroups);
+
+    const totalHeaders = [
+        "전체 그룹 수",
+        "시작일",
+        "종료일",
+        "총익절금액",
+        "총손절금액",
+        "총수수료",
+        "총확정손익금",
+        "총미실현손익",
+        "총순이익",
+        "총익절횟수",
+        "총손절횟수",
+        "전체승률",
+        "로그별 MDD 시기",
+        "로그별 MDD 값",
+        "전체 MDD 합"
+    ];
+    
+    const totalRow = [
+        topSummary.totalGroupCount,
+        topSummary.minStartDate,
+        topSummary.maxEndDate,
+        topSummary.sumProfit,
+        topSummary.sumLossAmount,
+        topSummary.sumFee,
+        topSummary.sumRealized,
+        topSummary.sumUnrealized,
+        topSummary.sumNetProfit,
+        topSummary.sumWinCount,
+        topSummary.sumLossCount,
+        topSummary.totalWinRate,
+        topSummary.logMddTimes,
+        topSummary.logMddValues,
+        topSummary.totalMddSum
+    ];
+
+    const groupHeaders = [
+        "Group Name",
+        "시작일",
+        "종료일",
+        "익절금액",
+        "손절금액",
+        "수수료",
+        "확정손익금",
+        "미실현손익",
+        "순이익",
+        "익절횟수",
+        "손절횟수",
+        "승률",
+        "MDD 시기",
+        "MDD 값"
+    ];
+    
+    let wsData = [totalHeaders, totalRow, [], [], groupHeaders];
+
+    allGroups.forEach(g => {
+        wsData.push([
+            g.GroupName,
+            g.StartDate,
+            g.EndDate,
+            g.raw_profit,
+            g.calc_loss_amount,
+            g.raw_fee,
+            g.calc_realized_pnl,
+            g.calc_unrealized_pnl,
+            g.calc_net_profit,
+            g.raw_win_count,
+            g.raw_loss_count,
+            g.calc_win_rate,
+            g.mdd_time,
+            g.mdd_value
+        ]);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    const mddLineCount = topSummary.logMddTimes
+        ? topSummary.logMddTimes.split("\n").length
+        : 1;
+
+    ws['!rows'] = [];
+    ws['!rows'][1] = { hpt: Math.max(22, mddLineCount * 18) };
+
+    applyExcelStyle(ws, 0, 4);
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Total_Result");
+    XLSX.writeFile(wb, `그룹${groupLabel}_통합결과.xlsx`);
+}
 
     function downloadAllGroups() {
         const sortedGroups = Object.keys(groupFiles).sort((a, b) => {
